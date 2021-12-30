@@ -3,7 +3,6 @@ package lz11
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 )
 
 var compressed *bytes.Buffer
@@ -31,7 +30,6 @@ func Decompress(passed []byte) ([]byte, error) {
 
 	// Create a buffer for us to write to throughout decompression.
 	decompressed = new(bytes.Buffer)
-	fmt.Println("Source file is claimed to be", originalLen, "bytes")
 
 	for decompressed.Len() < int(originalLen) {
 		currentByte, err := compressed.ReadByte()
