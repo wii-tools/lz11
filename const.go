@@ -36,6 +36,7 @@ const (
 var (
 	ErrCompressedTooSmall = errors.New("passed data does not meet minimum required data size")
 	ErrCompressedTooLarge = errors.New("passed data exceeds maximum possible data size")
+	ErrInputTooLarge      = errors.New("passed data is too large to be compressed")
 	ErrInvalidMagic       = errors.New("passed data does not appear to be valid LZ11 data")
 	ErrTruncated          = errors.New("compressed data ended before full decompression")
 	ErrInvalidData        = errors.New("compressed data does not appear to be valid")
