@@ -31,11 +31,15 @@ const (
 	MaxCoded1     = 0x10
 	MaxCoded2     = 0x110
 	MaxCoded3     = 0x10110
+	VRAMCompatible = 1
 )
 
 var (
+	ErrFailedBufferWrite 		  = errors.New("unable to write to byte buffer")
 	ErrCompressedTooSmall = errors.New("passed data does not meet minimum required data size")
 	ErrCompressedTooLarge = errors.New("passed data exceeds maximum possible data size")
+	ErrInputTooSmall      = errors.New("passed data is too small to be compressed")
+	ErrInputTooLarge      = errors.New("passed data is too large to be compressed")
 	ErrInvalidMagic       = errors.New("passed data does not appear to be valid LZ11 data")
 	ErrTruncated          = errors.New("compressed data ended before full decompression")
 	ErrInvalidData        = errors.New("compressed data does not appear to be valid")
