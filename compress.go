@@ -3,98 +3,118 @@ package lz11
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 )
 
-var input *bytes.Buffer
-var tempBuffer *bytes.Buffer
-var output *bytes.Buffer
+func Compress(data []byte) ([]byte, error){
+	// First ensure we can compress the data
+	if len(data) <= RawMin {
+		return nil, ErrInputTooSmall
+	}
 
-func Compress(passed []byte) ([]byte, error) {
-	input = bytes.NewBuffer(passed)
-	tempBuffer = new(bytes.Buffer)
-	output = new(bytes.Buffer)
-
-	size := input.Len()
-
-	// First a sanity check
-	if size > RawMax {
+	if len(data) > RawMax {
 		return nil, ErrInputTooLarge
 	}
-
-	// Write header
-	header := uint32(0x11 + (size << 8))
-	err := binary.Write(output, binary.LittleEndian, header)
+	
+	buffer := bytes.NewBuffer(nil)
+	err := binary.Write(buffer, binary.LittleEndian, uint32(0x11|len(data)<<8))
 	if err != nil {
-		return nil, err
+		return nil, ErrFailedBufferWrite
 	}
 
-	off := 0
-	byteVar := 0
-	index := 7
+	mask := 0
+	flag := 0
+	index := 0
+	_len := 0
+	pos := 0
+	lenBest := 0
+	posBest := 0
+	compPos := 4
 
-	for off < size {
-		pos, length := findLongestMatch(*input, off, 65809)
+	for index < len(data) {
+		mask >>= BitShiftCount
+		if mask == 0 {
+			buffer.WriteByte(0)
 
-		if pos == nil {
-			index -= 1
-			err := tempBuffer.WriteByte(input.Bytes()[off])
-			if err != nil {
-				panic(err)
-			}
+			flag = compPos
+			compPos++
+			mask = DefaultMask
+		}
 
-			off += 1
+		lenBest = MaxNotEncode
+
+		if index >= MaxOffset {
+			pos = MaxOffset
 		} else {
-			lzOff := off - *pos - 1
-			byteVar |= 1 << index
-			index -= 1
-
-			if *length < 0x11 {
-				l := *length - 1
-				cmp := []byte{
-					byte(lzOff>>8) + byte(l<<4),
-					byte(lzOff),
+			pos = index
+		}
+		for ; pos > VRAMCompatible; pos-- {
+			for _len = 0; _len < MaxCoded3; _len++ {
+				if index +_len == len(data) {
+					break
 				}
 
-				tempBuffer.Write(cmp)
-			} else if *length < 0x111 {
-				l := *length - 0x11
-				cmp := []byte{
-					byte(l >> 4),
-					byte(lzOff>>8) + byte(l<<4),
-					byte(lzOff),
+				if index +_len >= len(data) {
+					break
 				}
 
-				tempBuffer.Write(cmp)
-			} else {
-				l := *length - 0x111
-				cmp := []byte{
-					byte((l >> 12) + 0x10),
-					byte(l >> 4),
-					byte((lzOff >> 8) + (l << 4)),
-					byte(lzOff),
+				if data[index +_len] != data[index +_len-pos] {
+					break
 				}
-
-				tempBuffer.Write(cmp)
 			}
 
-			off += *length
-		}
+			if _len > lenBest {
+				posBest = pos
+				lenBest = _len
 
-		if index < 0 {
-			output.WriteByte(byte(byteVar))
-			output.Write(tempBuffer.Bytes())
-			byteVar = 0
-			index = 7
-			tempBuffer.Reset()
+				if lenBest == MaxCoded3 {
+					break
+				}
+			}
+		}
+		if lenBest > MaxNotEncode {
+			index += lenBest
+			buffer.Bytes()[flag] |= byte(mask)
+
+			if lenBest > MaxCoded2 {
+				lenBest -= MaxCoded2 + 1
+
+				cmp := []byte{
+					byte((lenBest >> 12) | 16),
+					byte((lenBest >> 4) & math.MaxUint8),
+					byte(((lenBest & 15) << 4) | (posBest-1)>>8),
+					byte((posBest - 1) & math.MaxUint8),
+				}
+
+				buffer.Write(cmp)
+				compPos += 4
+			} else if lenBest > MaxCoded1 {
+				lenBest -= MaxCoded1 + 1
+
+				cmp := []byte{
+					byte(lenBest >> 4),
+					byte(((lenBest & 15) << 4) | (posBest-1)>>8),
+					byte((posBest - 1) & math.MaxUint8),
+				}
+
+				buffer.Write(cmp)
+				compPos += 3
+			} else {
+				lenBest--
+				cmp := []byte{
+					byte(((lenBest & 15) << 4) | (posBest-1)>>8),
+					byte((posBest - 1) & math.MaxUint8),
+				}
+
+				buffer.Write(cmp)
+				compPos += 2
+			}
+		} else {
+			buffer.WriteByte(data[index])
+			compPos++
+			index++
 		}
 	}
 
-	if tempBuffer.Len() != 0 {
-		output.WriteByte(byte(byteVar))
-		output.Write(tempBuffer.Bytes())
-	}
-
-	output.WriteByte(byte(0xFF))
-
-	return output.Bytes(), nil
+	return buffer.Bytes(), nil
 }
