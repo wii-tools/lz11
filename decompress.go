@@ -32,107 +32,50 @@ func Decompress(passed []byte) ([]byte, error) {
 	decompressed = new(bytes.Buffer)
 
 	for decompressed.Len() < int(originalLen) {
-		currentByte, err := compressed.ReadByte()
-		if err != nil {
-			return nil, ErrTruncated
-		}
+		read := compressed.Next(1)[0]
 
-		for _, flag := range bits(currentByte) {
-			if flag == 0 {
-				// Copy a byte as-is.
-				nextByte, err := compressed.ReadByte()
-				if err != nil {
-					return nil, err
-				}
-
-				err = decompressed.WriteByte(nextByte)
-				if err != nil {
-					return nil, err
-				}
-			} else if flag == 1 {
-				// Determine how many times to copy a byte.
-				nextByte, err := compressed.ReadByte()
-				if err != nil {
-					return nil, err
-				}
-
-				indicator := nextByte >> 4
-				var count int
-				if indicator == 0 {
-					// 8 bit count, 12 bit disp
-					count = int(nextByte << 4)
-
-					// Read a further byte for full displacement.
-					nextByte, err = compressed.ReadByte()
-					if err != nil {
-						return nil, err
-					}
-
-					count += int(nextByte) >> 4
-					count += 0x11
-				} else if indicator == 1 {
-					// 16 bit count, 12 bit disp
-					count = int((nextByte & 0xf) << 12)
-					nextByte, err = compressed.ReadByte()
-					if err != nil {
-						return nil, err
-					}
-					count += int(nextByte << 4)
-
-					nextByte, err = compressed.ReadByte()
-					if err != nil {
-						return nil, err
-					}
-					count += int(nextByte) >> 4
-					count += 0x111
-				} else {
-					// Indicator is count, 12 bit disp
-					count = int(indicator)
-					count += 1
-				}
-
-				// Determine the offset to copy from within decompressed.
-				disp := (int(nextByte) & 0xf) << 8
-				dispByte, err := compressed.ReadByte()
-				if err != nil {
-					return nil, err
-				}
-				disp += int(dispByte)
-				disp += 1
-
-				// Copy the offset of bytes from the current decompressed buffer for the specified amount.
-				for count != 0 {
-					current := decompressed.Bytes()
-					err = decompressed.WriteByte(current[len(current)-disp])
-					if err != nil {
-						return nil, err
-					}
-
-					count--
-				}
-			} else {
-				return nil, ErrInvalidData
+		for i := 7; i != -1; i-- {
+			if decompressed.Len() >= int(originalLen) {
+				break
 			}
 
-			if int(originalLen) <= decompressed.Len() {
-				break
+			if (read >> i) & 1 == 0 {
+				decompressed.WriteByte(compressed.Next(1)[0])
+			} else {
+				lenmsb := uint32(compressed.Next(1)[0])
+				lsb := uint32(compressed.Next(1)[0])
+
+				length := lenmsb >> 4
+				disp := ((lenmsb & 15) << 8) + lsb
+
+				if length > 1 {
+					length += 1
+				} else if length == 0 {
+					length = (lenmsb & 15) << 4
+					length += lsb >> 4
+					length += 0x11
+					msb := uint32(compressed.Next(1)[0])
+					disp = ((lsb & 15) << 8) + msb
+
+				} else {
+					length = (lenmsb & 15) << 12
+					length += lsb << 4
+					someBytes := compressed.Next(2)
+					length += uint32(someBytes[0]) >> 4
+					length += 0x111
+					disp = ((uint32(someBytes[0]) & 15) << 8) + uint32(someBytes[1])
+
+				}
+
+				start := decompressed.Len() - int(disp) - 1
+
+				for i1 := 0; i1 < int(length); i1++ {
+					val := decompressed.Bytes()[start + i1]
+					decompressed.WriteByte(val)
+				}
 			}
 		}
 	}
 
 	return decompressed.Bytes(), nil
-}
-
-// bits returns a byte array with the individual bits for a byte.
-func bits(passed byte) [8]byte {
-	return [8]byte{
-		(passed >> 7) & 1,
-		(passed >> 6) & 1,
-		(passed >> 5) & 1,
-		(passed >> 4) & 1,
-		(passed >> 3) & 1,
-		(passed >> 2) & 1,
-		(passed >> 1) & 1,
-		passed & 1,
-	}
 }
